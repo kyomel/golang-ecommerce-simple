@@ -106,12 +106,101 @@ func generatePasscode(length int) string {
 
 func ConfirmOrder(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// TODO: ambil id dari param
+		id := c.Param("id")
 
+		// TODO: baca request body
+		var confirmReq model.Confirm
+		if err := c.BindJSON(&confirmReq); err != nil {
+			log.Printf("Terjadi kesalahan saat membaca request body: %v\n", err)
+			c.JSON(400, gin.H{"error": "Data konfirmasi tidak valid"})
+			return
+		}
+
+		// TODO: ambil data order dari database
+		order, err := model.SelectOrderByID(db, id)
+		if err != nil {
+			log.Printf("Terjadi kesalahan pada saat membaca data pesanan: %v\n", err)
+			c.JSON(500, gin.H{"error": "Terjadi kesalahan pada server"})
+			return
+		}
+
+		// TODO: cocokkan kata sandi dari pesanan
+		if order.Passcode == nil {
+			log.Printf("Pesanan tidak memiliki kata sandi\n")
+			c.JSON(400, gin.H{"error": "Pesanan tidak memiliki kata sandi"})
+			return
+		}
+
+		if err := bcrypt.CompareHashAndPassword([]byte(*order.Passcode), []byte(confirmReq.Passcode)); err != nil {
+			log.Printf("Terjadi kesalahan saat cocokkan kata sandi: %v\n", err)
+			c.JSON(401, gin.H{"error": "Tidak diizinkan mengakses pesanan"})
+			return
+		}
+
+		// TODO: pastikan pesanan belum dibayar
+		if order.PaidAt != nil {
+			log.Printf("Pesanan sudah dibayar\n")
+			c.JSON(400, gin.H{"error": "Pesanan sudah dibayar"})
+			return
+		}
+
+		// TODO: cocokkan jumlah pembayaran
+		if order.GrandTotal != confirmReq.Amount {
+			log.Printf("Jumlah pembayaran tidak sesuai: %d\n", confirmReq.Amount)
+			c.JSON(400, gin.H{"error": "Jumlah pembayaran tidak sesuai"})
+			return
+		}
+
+		// TODO update informasi pesanan
+		current := time.Now()
+		if err = model.UpdateOrderByID(db, id, confirmReq, current); err != nil {
+			log.Printf("Terjadi kesalahan saat mengubah data pesanan: %v\n", err)
+			c.JSON(500, gin.H{"error": "Terjadi kesalahan pada server"})
+			return
+		}
+
+		// Password digunakan satu kali lalu dihapus
+		order.Passcode = nil
+
+		order.PaidAt = &current
+		order.PaidBank = &confirmReq.Bank
+		order.PaidAccountNumber = &confirmReq.AccountNumber
+
+		c.JSON(200, order)
 	}
 }
 
 func GetOrder(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// TODO: ambil id dari param
+		id := c.Param("id")
 
+		// TODO: ambil dari request param
+		passcode := c.Query("passcode")
+
+		// TODO: ambil data order dari database
+		order, err := model.SelectOrderByID(db, id)
+		if err != nil {
+			log.Printf("Terjadi kesalahan pada saat membaca data pesanan: %v\n", err)
+			c.JSON(500, gin.H{"error": "Terjadi kesalahan pada server"})
+			return
+		}
+
+		if order.Passcode == nil {
+			log.Printf("Pesanan tidak memiliki kata sandi\n")
+			c.JSON(400, gin.H{"error": "Pesanan tidak memiliki kata sandi"})
+			return
+		}
+
+		if err := bcrypt.CompareHashAndPassword([]byte(*order.Passcode), []byte(passcode)); err != nil {
+			log.Printf("Terjadi kesalahan saat cocokkan kata sandi: %v\n", err)
+			c.JSON(401, gin.H{"error": "Tidak diizinkan mengakses pesanan"})
+			return
+		}
+
+		order.Passcode = nil
+
+		c.JSON(200, order)
 	}
 }
